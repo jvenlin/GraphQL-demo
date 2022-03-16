@@ -1,5 +1,7 @@
-const express = require('express');
-const { graphqlHTTP } = require('express-graphql');
+const express = require('express')
+const QuellCache = require('@quell/server')
+const { graphqlHTTP } = require('express-graphql')
+const cors = require('cors')
 const {
   GraphQLSchema,
   GraphQLObjectType,
@@ -7,8 +9,12 @@ const {
   GraphQLList,
   GraphQLInt,
   GraphQLNonNull,
+  parse,
 } = require ('graphql')
 const app = express();
+
+app.use(cors())
+app.use(express.json())
 
 const authors = [
     { id: 1, name: 'J. K. Rowling'},
@@ -125,11 +131,49 @@ const RootMutationType = new GraphQLObjectType({
 
 const schema = new GraphQLSchema({
     query: RootQueryType,
-    mutation: RootMutationType,
+    mutation: RootMutationType
+})
+const quellCache = new QuellCache(schema, 6379, 1200);
+
+app.use(cors())
+app.use(express.json())
+// app.use((req, res) => console.log(req.body))
+app.use((req, res) => console.log(parse(req.body.query)))
+
+app.get('/clearCache', quellCache.clearCache, (req, res) => {
+    return res.status(200).send('Redis cache successfully cleared');
+});
+
+app.use('/graphql', quellCache.query, (req, res) => {
+  return res.status(200).send(res.locals.queryResponse)
 })
 
-app.use('/graphql', graphqlHTTP({
-    schema: schema,
-    graphiql: true,
+// app.use('/graphql', quellCache.query, (req, res) => {
+//   return res.status(200).send(res.locals.queryResponse);
+// });
+
+// app.use('/graphql', (req, res) => {
+//   return res.status(200).send(res.locals.queryResponse)
+// })
+
+app.use('/redis', quellCache.getRedisInfo({
+  getStats: true,
+  getKeys: true,
+  getValues: true
 }))
+
+app.use((req, res) => {
+  return res.status(400).send('Page not found.');
+})
+
+app.use((err, req, res, next) => {
+  const defaultErr = {
+    log: 'Express error handler caught unknown middleware error!',
+    status: 500,
+    message: { err: 'An error occurred!' },
+  };
+  const errorObj = Object.assign(defaultErr, err);
+  return res.status(errorObj.status).json(errorObj.message);
+});
+
 app.listen(3000, () => console.log('Listening on port 3000'));
